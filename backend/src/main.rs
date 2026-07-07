@@ -9,6 +9,7 @@ use serde::Deserialize;
 use shared::{ClientMessage, MAX_PLAYERS, RoomInfo, ServerMessage};
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
+use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
 
 struct Room {
@@ -26,9 +27,13 @@ async fn main() {
 }
 
 fn router(rooms: Rooms) -> Router {
+    let dist = concat!(env!("CARGO_MANIFEST_DIR"), "/../frontend/dist");
+    let frontend = ServeDir::new(dist).fallback(ServeFile::new(format!("{dist}/index.html")));
+
     Router::new()
         .route("/rooms", get(list_rooms).post(create_room))
         .route("/ws/{id}", any(ws_handler))
+        .fallback_service(frontend)
         .layer(CorsLayer::permissive())
         .with_state(rooms)
 }
