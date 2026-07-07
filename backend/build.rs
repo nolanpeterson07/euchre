@@ -18,6 +18,6 @@ fn run(cmd: &str, args: &[&str], dir: &str) {
         .current_dir(dir)
         .status()
         .unwrap_or_else(|e| panic!("failed to spawn {cmd}: {e}"));
-    
+
     assert!(status.success(), "{cmd} {args:?} failed in {dir}");
 }

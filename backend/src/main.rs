@@ -23,7 +23,9 @@ type Rooms = Arc<Mutex<HashMap<Uuid, Room>>>;
 async fn main() {
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     println!("listening on {}", listener.local_addr().unwrap());
-    axum::serve(listener, router(Rooms::default())).await.unwrap();
+    axum::serve(listener, router(Rooms::default()))
+        .await
+        .unwrap();
 }
 
 fn router(rooms: Rooms) -> Router {
@@ -39,7 +41,14 @@ fn router(rooms: Rooms) -> Router {
 }
 
 async fn list_rooms(State(rooms): State<Rooms>) -> Json<Vec<RoomInfo>> {
-    Json(rooms.lock().unwrap().values().map(|r| r.info.clone()).collect())
+    Json(
+        rooms
+            .lock()
+            .unwrap()
+            .values()
+            .map(|r| r.info.clone())
+            .collect(),
+    )
 }
 
 #[derive(Deserialize)]
@@ -55,7 +64,13 @@ async fn create_room(State(rooms): State<Rooms>, Json(req): Json<CreateRoom>) ->
         in_game: false,
     };
     let (tx, _) = broadcast::channel(64);
-    rooms.lock().unwrap().insert(info.id, Room { info: info.clone(), tx });
+    rooms.lock().unwrap().insert(
+        info.id,
+        Room {
+            info: info.clone(),
+            tx,
+        },
+    );
     Json(info)
 }
 
@@ -84,7 +99,8 @@ async fn handle_socket(mut socket: WebSocket, rooms: Rooms, id: Uuid, name: Stri
         match rooms.get_mut(&id) {
             Some(room)
                 if room.info.players.len() < MAX_PLAYERS
-                    && !room.info.players.contains(&name) && name.len() > 0 =>
+                    && !room.info.players.contains(&name)
+                    && name.len() > 0 =>
             {
                 room.info.players.push(name.clone());
                 Some((room.tx.clone(), room.tx.subscribe(), room.info.clone()))
