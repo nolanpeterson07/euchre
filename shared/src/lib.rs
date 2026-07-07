@@ -1,9 +1,13 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 use uuid::Uuid;
 
 pub const MAX_PLAYERS: usize = 4;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+const BINDINGS_DIR: &str = "../../frontend/src/lib/bindings/";
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = BINDINGS_DIR)]
 pub struct RoomInfo {
     pub id: Uuid,
     pub name: String,
@@ -11,20 +15,23 @@ pub struct RoomInfo {
     pub in_game: bool,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[ts(export, export_to = BINDINGS_DIR)]
 pub struct Game {
     pub started: bool,
 }
 
 /// Frontend -> server
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = BINDINGS_DIR)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
     Chat { text: String },
 }
 
 /// Server -> frontend
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = BINDINGS_DIR)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
     Joined { room: RoomInfo },

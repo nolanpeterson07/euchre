@@ -14,6 +14,10 @@ tower-http = { version = "0.6", features = ["cors", "fs"] }
 log = "0.4.33"
 env_logger = "0.11.11"
 
+[build-dependencies]
+shared = { path = "../shared" }
+ts-rs = "12"
+
 [dev-dependencies]
 tokio-tungstenite = "0.27"
 futures-util = "0.3"
