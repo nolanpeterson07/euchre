@@ -5,6 +5,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::routing::{any, get};
 use axum::{Json, Router};
+use log::info;
 use serde::Deserialize;
 use shared::{ClientMessage, MAX_PLAYERS, RoomInfo, ServerMessage};
 use tokio::sync::broadcast;
@@ -21,8 +22,10 @@ type Rooms = Arc<Mutex<HashMap<Uuid, Room>>>;
 
 #[tokio::main]
 async fn main() {
+    env_logger::init();
+
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    println!("listening on {}", listener.local_addr().unwrap());
+    info!("listening on {}", listener.local_addr().unwrap());
     axum::serve(listener, router(Rooms::default()))
         .await
         .unwrap();
