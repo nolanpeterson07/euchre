@@ -19,6 +19,8 @@ pub struct RoomInfo {
 #[ts(export, export_to = BINDINGS_DIR)]
 pub struct Game {
     pub started: bool,
+    /// Index into RoomInfo.players of whose turn it is.
+    pub turn: usize,
 }
 
 /// Frontend -> server
@@ -27,6 +29,7 @@ pub struct Game {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
     Chat { text: String },
+    StartGame,
 }
 
 /// Server -> frontend
@@ -38,5 +41,6 @@ pub enum ServerMessage {
     PlayerJoined { name: String },
     PlayerLeft { name: String },
     Chat { from: String, text: String },
+    GameState { game: Game },
     Error { message: String },
 }

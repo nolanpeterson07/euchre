@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+mod game;
+mod room;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
@@ -7,18 +7,13 @@ use axum::routing::{any, get};
 use axum::{Json, Router};
 use log::info;
 use serde::Deserialize;
-use shared::{ClientMessage, MAX_PLAYERS, RoomInfo, ServerMessage};
+use shared::{RoomInfo, ServerMessage};
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
 
-struct Room {
-    info: RoomInfo,
-    tx: broadcast::Sender<String>,
-}
-
-type Rooms = Arc<Mutex<HashMap<Uuid, Room>>>;
+use crate::room::Lobby;
 
 #[tokio::main]
 async fn main() {
@@ -26,12 +21,12 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     info!("listening on {}", listener.local_addr().unwrap());
-    axum::serve(listener, router(Rooms::default()))
+    axum::serve(listener, router(Lobby::default()))
         .await
         .unwrap();
 }
 
-fn router(rooms: Rooms) -> Router {
+fn router(lobby: Lobby) -> Router {
     let dist = concat!(env!("CARGO_MANIFEST_DIR"), "/../frontend/dist");
     let frontend = ServeDir::new(dist).fallback(ServeFile::new(format!("{dist}/index.html")));
 
@@ -40,18 +35,11 @@ fn router(rooms: Rooms) -> Router {
         .route("/ws/{id}", any(ws_handler))
         .fallback_service(frontend)
         .layer(CorsLayer::permissive())
-        .with_state(rooms)
+        .with_state(lobby)
 }
 
-async fn list_rooms(State(rooms): State<Rooms>) -> Json<Vec<RoomInfo>> {
-    Json(
-        rooms
-            .lock()
-            .unwrap()
-            .values()
-            .map(|r| r.info.clone())
-            .collect(),
-    )
+async fn list_rooms(State(lobby): State<Lobby>) -> Json<Vec<RoomInfo>> {
+    Json(lobby.list())
 }
 
 #[derive(Deserialize)]
@@ -59,22 +47,8 @@ struct CreateRoom {
     name: String,
 }
 
-async fn create_room(State(rooms): State<Rooms>, Json(req): Json<CreateRoom>) -> Json<RoomInfo> {
-    let info = RoomInfo {
-        id: Uuid::new_v4(),
-        name: req.name,
-        players: vec![],
-        in_game: false,
-    };
-    let (tx, _) = broadcast::channel(64);
-    rooms.lock().unwrap().insert(
-        info.id,
-        Room {
-            info: info.clone(),
-            tx,
-        },
-    );
-    Json(info)
+async fn create_room(State(lobby): State<Lobby>, Json(req): Json<CreateRoom>) -> Json<RoomInfo> {
+    Json(lobby.create(req.name))
 }
 
 #[derive(Deserialize)]
@@ -84,46 +58,36 @@ struct JoinQuery {
 
 /// Join a room by UUID: ws://host/ws/{room_id}?name={player}
 async fn ws_handler(
-    State(rooms): State<Rooms>,
+    State(lobby): State<Lobby>,
     Path(id): Path<Uuid>,
     Query(q): Query<JoinQuery>,
     ws: WebSocketUpgrade,
 ) -> axum::response::Response {
-    ws.on_upgrade(move |socket| handle_socket(socket, rooms, id, q.name))
+    ws.on_upgrade(move |socket| handle_socket(socket, lobby, id, q.name))
 }
 
-fn send_to_room(tx: &broadcast::Sender<String>, msg: &ServerMessage) {
-    let _ = tx.send(serde_json::to_string(msg).unwrap());
+async fn send(socket: &mut WebSocket, msg: &ServerMessage) -> Result<(), axum::Error> {
+    let text = serde_json::to_string(msg).unwrap();
+    socket.send(Message::Text(text.into())).await
 }
 
-async fn handle_socket(mut socket: WebSocket, rooms: Rooms, id: Uuid, name: String) {
-    let joined = {
-        let mut rooms = rooms.lock().unwrap();
-        match rooms.get_mut(&id) {
-            Some(room)
-                if room.info.players.len() < MAX_PLAYERS
-                    && !room.info.players.contains(&name)
-                    && name.len() > 0 =>
-            {
-                room.info.players.push(name.clone());
-                Some((room.tx.clone(), room.tx.subscribe(), room.info.clone()))
-            }
-            _ => None,
+async fn handle_socket(mut socket: WebSocket, lobby: Lobby, id: Uuid, name: String) {
+    let joined = match lobby.get(id) {
+        None => Err("room not found".to_string()),
+        Some(room) => room
+            .join(name.clone())
+            .await
+            .map(|(rx, info)| (room, rx, info)),
+    };
+    let (room, mut rx, info) = match joined {
+        Ok(j) => j,
+        Err(message) => {
+            let _ = send(&mut socket, &ServerMessage::Error { message }).await;
+            return;
         }
     };
-    let Some((tx, mut rx, info)) = joined else {
-        let err = ServerMessage::Error {
-            message: "room not found, full, or name taken".into(),
-        };
-        let _ = socket
-            .send(Message::Text(serde_json::to_string(&err).unwrap().into()))
-            .await;
-        return;
-    };
 
-    let joined_msg = serde_json::to_string(&ServerMessage::Joined { room: info }).unwrap();
-    let _ = socket.send(Message::Text(joined_msg.into())).await;
-    send_to_room(&tx, &ServerMessage::PlayerJoined { name: name.clone() });
+    let _ = send(&mut socket, &ServerMessage::Joined { room: info }).await;
 
     loop {
         tokio::select! {
@@ -138,8 +102,11 @@ async fn handle_socket(mut socket: WebSocket, rooms: Rooms, id: Uuid, name: Stri
             },
             msg = socket.recv() => match msg {
                 Some(Ok(Message::Text(text))) => {
-                    if let Ok(ClientMessage::Chat { text }) = serde_json::from_str(&text) {
-                        send_to_room(&tx, &ServerMessage::Chat { from: name.clone(), text });
+                    let Ok(msg) = serde_json::from_str(&text) else { continue }; // ignore malformed
+                    if let Err(message) = room.send(name.clone(), msg).await
+                        && send(&mut socket, &ServerMessage::Error { message }).await.is_err()
+                    {
+                        break;
                     }
                 }
                 Some(Ok(_)) => {} // ignore binary/ping/pong
@@ -148,14 +115,5 @@ async fn handle_socket(mut socket: WebSocket, rooms: Rooms, id: Uuid, name: Stri
         }
     }
 
-    {
-        let mut rooms = rooms.lock().unwrap();
-        if let Some(room) = rooms.get_mut(&id) {
-            room.info.players.retain(|p| p != &name);
-            if room.info.players.is_empty() {
-                rooms.remove(&id);
-            }
-        }
-    }
-    send_to_room(&tx, &ServerMessage::PlayerLeft { name });
+    room.leave(name).await;
 }
