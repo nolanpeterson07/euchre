@@ -87,8 +87,24 @@ pub struct Game {
 #[ts(export, export_to = BINDINGS_DIR)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
-    Chat { text: String },
+    Chat {
+        text: String,
+    },
     StartGame,
+    OrderUp {
+        alone: bool,
+    },
+    CallTrump {
+        suit: Suit,
+        alone: bool,
+    },
+    Pass,
+    Discard {
+        card: Card,
+    },
+    PlayCard {
+        card: Card,
+    },
 }
 
 /// Server -> frontend

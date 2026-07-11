@@ -21,5 +21,10 @@ pub fn apply(
             game.started = true;
             Ok(ServerMessage::GameState { game: game.clone() })
         }
+        ClientMessage::OrderUp { .. }
+        | ClientMessage::CallTrump { .. }
+        | ClientMessage::Pass
+        | ClientMessage::Discard { .. }
+        | ClientMessage::PlayCard { .. } => Err("not implemented".into()),
     }
 }
