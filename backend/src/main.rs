@@ -8,7 +8,7 @@ use axum::{Json, Router};
 use log::info;
 use serde::Deserialize;
 use shared::{RoomInfo, ServerMessage};
-use tokio::sync::broadcast;
+use tokio::sync::mpsc;
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
@@ -71,15 +71,14 @@ async fn send(socket: &mut WebSocket, msg: &ServerMessage) -> Result<(), axum::E
     socket.send(Message::Text(text.into())).await
 }
 
+/// Pure pipe between one websocket and its room actor.
 async fn handle_socket(mut socket: WebSocket, lobby: Lobby, id: Uuid, name: String) {
+    let (out_tx, mut out_rx) = mpsc::channel(64);
     let joined = match lobby.get(id) {
         None => Err("room not found".to_string()),
-        Some(room) => room
-            .join(name.clone())
-            .await
-            .map(|(rx, info)| (room, rx, info)),
+        Some(room) => room.join(name.clone(), out_tx).await.map(|info| (room, info)),
     };
-    let (room, mut rx, info) = match joined {
+    let (room, info) = match joined {
         Ok(j) => j,
         Err(message) => {
             let _ = send(&mut socket, &ServerMessage::Error { message }).await;
@@ -91,23 +90,18 @@ async fn handle_socket(mut socket: WebSocket, lobby: Lobby, id: Uuid, name: Stri
 
     loop {
         tokio::select! {
-            msg = rx.recv() => match msg {
-                Ok(text) => {
+            msg = out_rx.recv() => match msg {
+                Some(text) => {
                     if socket.send(Message::Text(text.into())).await.is_err() {
                         break;
                     }
                 }
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(broadcast::error::RecvError::Closed) => break,
+                None => break, // room gone
             },
             msg = socket.recv() => match msg {
                 Some(Ok(Message::Text(text))) => {
                     let Ok(msg) = serde_json::from_str(&text) else { continue }; // ignore malformed
-                    if let Err(message) = room.send(name.clone(), msg).await
-                        && send(&mut socket, &ServerMessage::Error { message }).await.is_err()
-                    {
-                        break;
-                    }
+                    room.send(name.clone(), msg).await;
                 }
                 Some(Ok(_)) => {} // ignore binary/ping/pong
                 _ => break,       // closed or errored

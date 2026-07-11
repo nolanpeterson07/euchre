@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use shared::{ClientMessage, Game, MAX_PLAYERS, RoomInfo, ServerMessage};
-use tokio::sync::{broadcast, mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
 #[derive(Clone, Default)]
@@ -16,7 +16,6 @@ impl Lobby {
             players: vec![],
             in_game: false,
         };
-
         let (cmd_tx, cmd_rx) = mpsc::channel(32);
         let handle = RoomHandle {
             info: Arc::new(Mutex::new(info.clone())),
@@ -53,34 +52,29 @@ pub struct RoomHandle {
 }
 
 impl RoomHandle {
-    pub async fn join(
-        &self,
-        name: String,
-    ) -> Result<(broadcast::Receiver<String>, RoomInfo), String> {
+    pub async fn join(&self, name: String, out: mpsc::Sender<String>) -> Result<RoomInfo, String> {
         let (reply, rx) = oneshot::channel();
-        self.request(Cmd::Join { name, reply }, rx).await?
+        self.cmd
+            .send(Cmd::Join { name, out, reply })
+            .await
+            .map_err(|_| "room closed".to_string())?;
+        rx.await.map_err(|_| "room closed".to_string())?
     }
 
-    pub async fn send(&self, name: String, msg: ClientMessage) -> Result<(), String> {
-        let (reply, rx) = oneshot::channel();
-        self.request(Cmd::Msg { name, msg, reply }, rx).await?
+    pub async fn send(&self, name: String, msg: ClientMessage) {
+        let _ = self.cmd.send(Cmd::Msg { name, msg }).await;
     }
 
     pub async fn leave(&self, name: String) {
         let _ = self.cmd.send(Cmd::Leave { name }).await;
-    }
-
-    async fn request<T>(&self, cmd: Cmd, rx: oneshot::Receiver<T>) -> Result<T, String> {
-        let closed = || "room closed".to_string();
-        self.cmd.send(cmd).await.map_err(|_| closed())?;
-        rx.await.map_err(|_| closed())
     }
 }
 
 enum Cmd {
     Join {
         name: String,
-        reply: oneshot::Sender<Result<(broadcast::Receiver<String>, RoomInfo), String>>,
+        out: mpsc::Sender<String>,
+        reply: oneshot::Sender<Result<RoomInfo, String>>,
     },
     Leave {
         name: String,
@@ -88,12 +82,22 @@ enum Cmd {
     Msg {
         name: String,
         msg: ClientMessage,
-        reply: oneshot::Sender<Result<(), String>>,
     },
 }
 
-fn send_to_room(tx: &broadcast::Sender<String>, msg: &ServerMessage) {
-    let _ = tx.send(serde_json::to_string(msg).unwrap());
+type Peers = HashMap<String, mpsc::Sender<String>>;
+
+fn broadcast(peers: &Peers, msg: &ServerMessage) {
+    let text = serde_json::to_string(msg).unwrap();
+    for out in peers.values() {
+        let _ = out.try_send(text.clone());
+    }
+}
+
+fn send_to(peers: &Peers, name: &str, msg: &ServerMessage) {
+    if let Some(out) = peers.get(name) {
+        let _ = out.try_send(serde_json::to_string(msg).unwrap());
+    }
 }
 
 async fn room_actor(
@@ -102,36 +106,40 @@ async fn room_actor(
     info: Arc<Mutex<RoomInfo>>,
     mut rx: mpsc::Receiver<Cmd>,
 ) {
-    let (tx, _) = broadcast::channel(64);
+    let mut peers = Peers::new();
     let mut game = Game::default();
     while let Some(cmd) = rx.recv().await {
         match cmd {
-            Cmd::Join { name, reply } => {
+            Cmd::Join { name, out, reply } => {
                 let joined = {
                     let mut info = info.lock().unwrap();
                     if info.players.len() < MAX_PLAYERS
-                        && !info.players.contains(&name)
+                        && !peers.contains_key(&name)
                         && !name.is_empty()
                     {
                         info.players.push(name.clone());
-                        Ok((tx.subscribe(), info.clone()))
+                        Ok(info.clone())
                     } else {
                         Err("room full or name taken".to_string())
                     }
                 };
+                if joined.is_ok() {
+                    peers.insert(name.clone(), out);
+                }
                 let ok = joined.is_ok();
                 let _ = reply.send(joined);
                 if ok {
-                    send_to_room(&tx, &ServerMessage::PlayerJoined { name });
+                    broadcast(&peers, &ServerMessage::PlayerJoined { name });
                 }
             }
             Cmd::Leave { name } => {
+                peers.remove(&name);
                 let empty = {
                     let mut info = info.lock().unwrap();
                     info.players.retain(|p| p != &name);
                     info.players.is_empty()
                 };
-                send_to_room(&tx, &ServerMessage::PlayerLeft { name });
+                broadcast(&peers, &ServerMessage::PlayerLeft { name });
                 if empty {
                     lobby.0.lock().unwrap().remove(&id);
                     return;
@@ -140,22 +148,17 @@ async fn room_actor(
             Cmd::Msg {
                 name,
                 msg: ClientMessage::Chat { text },
-                reply,
             } => {
-                send_to_room(&tx, &ServerMessage::Chat { from: name, text });
-                let _ = reply.send(Ok(()));
+                broadcast(&peers, &ServerMessage::Chat { from: name, text });
             }
-            Cmd::Msg { name, msg, reply } => {
+            Cmd::Msg { name, msg } => {
                 let players = info.lock().unwrap().players.clone();
                 match crate::game::apply(&mut game, &players, &name, &msg) {
                     Ok(m) => {
                         info.lock().unwrap().in_game = game.started;
-                        send_to_room(&tx, &m);
-                        let _ = reply.send(Ok(()));
+                        broadcast(&peers, &m);
                     }
-                    Err(e) => {
-                        let _ = reply.send(Err(e));
-                    }
+                    Err(message) => send_to(&peers, &name, &ServerMessage::Error { message }),
                 }
             }
         }
