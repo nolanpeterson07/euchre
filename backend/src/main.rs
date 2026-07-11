@@ -71,12 +71,12 @@ async fn send(socket: &mut WebSocket, msg: &ServerMessage) -> Result<(), axum::E
     socket.send(Message::Text(text.into())).await
 }
 
-/// Pure pipe between one websocket and its room actor.
+/// Pumps messages between one websocket and its room.
 async fn handle_socket(mut socket: WebSocket, lobby: Lobby, id: Uuid, name: String) {
     let (out_tx, mut out_rx) = mpsc::channel(64);
     let joined = match lobby.get(id) {
         None => Err("room not found".to_string()),
-        Some(room) => room.join(name.clone(), out_tx).await.map(|info| (room, info)),
+        Some(room) => room.join(name.clone(), out_tx).map(|info| (room, info)),
     };
     let (room, info) = match joined {
         Ok(j) => j,
@@ -101,7 +101,7 @@ async fn handle_socket(mut socket: WebSocket, lobby: Lobby, id: Uuid, name: Stri
             msg = socket.recv() => match msg {
                 Some(Ok(Message::Text(text))) => {
                     let Ok(msg) = serde_json::from_str(&text) else { continue }; // ignore malformed
-                    room.send(name.clone(), msg).await;
+                    room.send(name.clone(), msg);
                 }
                 Some(Ok(_)) => {} // ignore binary/ping/pong
                 _ => break,       // closed or errored
@@ -109,5 +109,7 @@ async fn handle_socket(mut socket: WebSocket, lobby: Lobby, id: Uuid, name: Stri
         }
     }
 
-    room.leave(name).await;
+    if room.leave(name) {
+        lobby.remove(id);
+    }
 }

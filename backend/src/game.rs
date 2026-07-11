@@ -6,8 +6,11 @@ pub fn apply(
     player: &str,
     action: &ClientMessage,
 ) -> Result<ServerMessage, String> {
-    let _ = player;
     match action {
+        ClientMessage::Chat { text } => Ok(ServerMessage::Chat {
+            from: player.to_string(),
+            text: text.clone(),
+        }),
         ClientMessage::StartGame => {
             if game.started {
                 return Err("game already started".into());
@@ -18,7 +21,5 @@ pub fn apply(
             game.started = true;
             Ok(ServerMessage::GameState { game: game.clone() })
         }
-        
-        ClientMessage::Chat { .. } => Err("not a game action".into()),
     }
 }

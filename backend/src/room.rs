@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use shared::{ClientMessage, Game, MAX_PLAYERS, RoomInfo, ServerMessage};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 #[derive(Clone, Default)]
@@ -16,18 +16,15 @@ impl Lobby {
             players: vec![],
             in_game: false,
         };
-        let (cmd_tx, cmd_rx) = mpsc::channel(32);
-        let handle = RoomHandle {
-            info: Arc::new(Mutex::new(info.clone())),
-            cmd: cmd_tx,
+        let room = Room {
+            info: info.clone(),
+            game: Game::default(),
+            peers: HashMap::new(),
         };
-        tokio::spawn(room_actor(
-            self.clone(),
-            info.id,
-            handle.info.clone(),
-            cmd_rx,
-        ));
-        self.0.lock().unwrap().insert(info.id, handle);
+        self.0
+            .lock()
+            .unwrap()
+            .insert(info.id, RoomHandle(Arc::new(Mutex::new(room))));
         info
     }
 
@@ -36,53 +33,64 @@ impl Lobby {
             .lock()
             .unwrap()
             .values()
-            .map(|h| h.info.lock().unwrap().clone())
+            .map(|h| h.0.lock().unwrap().info.clone())
             .collect()
     }
 
     pub fn get(&self, id: Uuid) -> Option<RoomHandle> {
         self.0.lock().unwrap().get(&id).cloned()
     }
+
+    pub fn remove(&self, id: Uuid) {
+        self.0.lock().unwrap().remove(&id);
+    }
+}
+
+/// All the state for one room, behind a single per-room lock.
+struct Room {
+    info: RoomInfo,
+    game: Game,
+    peers: HashMap<String, mpsc::Sender<String>>,
 }
 
 #[derive(Clone)]
-pub struct RoomHandle {
-    info: Arc<Mutex<RoomInfo>>,
-    cmd: mpsc::Sender<Cmd>,
-}
+pub struct RoomHandle(Arc<Mutex<Room>>);
 
 impl RoomHandle {
-    pub async fn join(&self, name: String, out: mpsc::Sender<String>) -> Result<RoomInfo, String> {
-        let (reply, rx) = oneshot::channel();
-        self.cmd
-            .send(Cmd::Join { name, out, reply })
-            .await
-            .map_err(|_| "room closed".to_string())?;
-        rx.await.map_err(|_| "room closed".to_string())?
+    pub fn join(&self, name: String, out: mpsc::Sender<String>) -> Result<RoomInfo, String> {
+        let mut room = self.0.lock().unwrap();
+        let rejected = name.is_empty()
+            || room.peers.contains_key(&name)
+            || room.info.players.len() >= MAX_PLAYERS;
+        if rejected {
+            return Err("room full or name taken".to_string());
+        }
+        room.peers.insert(name.clone(), out);
+        room.info.players.push(name.clone());
+        broadcast(&room.peers, &ServerMessage::PlayerJoined { name });
+        Ok(room.info.clone())
     }
 
-    pub async fn send(&self, name: String, msg: ClientMessage) {
-        let _ = self.cmd.send(Cmd::Msg { name, msg }).await;
+    /// Returns true if the room is now empty and should be removed from the lobby.
+    pub fn leave(&self, name: String) -> bool {
+        let mut room = self.0.lock().unwrap();
+        room.peers.remove(&name);
+        room.info.players.retain(|p| p != &name);
+        broadcast(&room.peers, &ServerMessage::PlayerLeft { name });
+        room.info.players.is_empty()
     }
 
-    pub async fn leave(&self, name: String) {
-        let _ = self.cmd.send(Cmd::Leave { name }).await;
+    pub fn send(&self, name: String, msg: ClientMessage) {
+        let mut room = self.0.lock().unwrap();
+        let Room { info, game, peers } = &mut *room;
+        match crate::game::apply(game, &info.players, &name, &msg) {
+            Ok(reply) => {
+                info.in_game = game.started;
+                broadcast(peers, &reply);
+            }
+            Err(message) => send_to(peers, &name, &ServerMessage::Error { message }),
+        }
     }
-}
-
-enum Cmd {
-    Join {
-        name: String,
-        out: mpsc::Sender<String>,
-        reply: oneshot::Sender<Result<RoomInfo, String>>,
-    },
-    Leave {
-        name: String,
-    },
-    Msg {
-        name: String,
-        msg: ClientMessage,
-    },
 }
 
 type Peers = HashMap<String, mpsc::Sender<String>>;
@@ -97,70 +105,5 @@ fn broadcast(peers: &Peers, msg: &ServerMessage) {
 fn send_to(peers: &Peers, name: &str, msg: &ServerMessage) {
     if let Some(out) = peers.get(name) {
         let _ = out.try_send(serde_json::to_string(msg).unwrap());
-    }
-}
-
-async fn room_actor(
-    lobby: Lobby,
-    id: Uuid,
-    info: Arc<Mutex<RoomInfo>>,
-    mut rx: mpsc::Receiver<Cmd>,
-) {
-    let mut peers = Peers::new();
-    let mut game = Game::default();
-    while let Some(cmd) = rx.recv().await {
-        match cmd {
-            Cmd::Join { name, out, reply } => {
-                let joined = {
-                    let mut info = info.lock().unwrap();
-                    if info.players.len() < MAX_PLAYERS
-                        && !peers.contains_key(&name)
-                        && !name.is_empty()
-                    {
-                        info.players.push(name.clone());
-                        Ok(info.clone())
-                    } else {
-                        Err("room full or name taken".to_string())
-                    }
-                };
-                if joined.is_ok() {
-                    peers.insert(name.clone(), out);
-                }
-                let ok = joined.is_ok();
-                let _ = reply.send(joined);
-                if ok {
-                    broadcast(&peers, &ServerMessage::PlayerJoined { name });
-                }
-            }
-            Cmd::Leave { name } => {
-                peers.remove(&name);
-                let empty = {
-                    let mut info = info.lock().unwrap();
-                    info.players.retain(|p| p != &name);
-                    info.players.is_empty()
-                };
-                broadcast(&peers, &ServerMessage::PlayerLeft { name });
-                if empty {
-                    lobby.0.lock().unwrap().remove(&id);
-                    return;
-                }
-            }
-            Cmd::Msg {
-                name,
-                msg: ClientMessage::Chat { text },
-            } => {
-                broadcast(&peers, &ServerMessage::Chat { from: name, text });
-            }
-            Cmd::Msg { name, msg } => {
-                let players = info.lock().unwrap().players.clone();
-                match crate::game::apply(&mut game, &players, &name, &msg) {
-                    Ok(m) => {
-                        info.lock().unwrap().in_game = game.started;
-                        broadcast(&peers, &m);
-                    }
-                    Err(message) => send_to(&peers, &name, &ServerMessage::Error { message }),
-                }
-            }
-        }
     }
 }
