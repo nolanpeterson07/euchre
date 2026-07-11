@@ -15,12 +15,71 @@ pub struct RoomInfo {
     pub in_game: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = BINDINGS_DIR)]
+#[serde(rename_all = "snake_case")]
+pub enum Suit {
+    Clubs,
+    Diamonds,
+    Hearts,
+    Spades,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = BINDINGS_DIR)]
+#[serde(rename_all = "snake_case")]
+pub enum Rank {
+    Nine,
+    Ten,
+    Jack,
+    Queen,
+    King,
+    Ace,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = BINDINGS_DIR)]
+pub struct Card {
+    pub rank: Rank,
+    pub suit: Suit,
+}
+
+pub type Hand = Vec<Card>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = BINDINGS_DIR)]
+pub struct PlayedCard {
+    pub player: usize,
+    pub card: Card,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = BINDINGS_DIR)]
+pub struct Bidder {
+    pub player: usize,
+    pub alone: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[ts(export, export_to = BINDINGS_DIR)]
+pub struct Team {
+    pub players: [usize; 2],
+    pub score: u8,
+    pub tricks_won: u8,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
 #[ts(export, export_to = BINDINGS_DIR)]
 pub struct Game {
     pub started: bool,
-    /// Index into RoomInfo.players of whose turn it is.
     pub turn: usize,
+    pub dealer: usize,
+    pub teams: [Team; 2],
+    pub trump: Option<Suit>,
+    pub upcard: Option<Card>,
+    pub maker: Option<Bidder>,
+    pub hands: [Hand; 4],
+    pub trick: Vec<PlayedCard>,
 }
 
 /// Frontend -> server
