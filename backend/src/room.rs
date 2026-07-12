@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use shared::{ClientMessage, Game, MAX_PLAYERS, RoomInfo, ServerMessage};
+use shared::{ClientMessage, Game, MAX_PLAYERS, Phase, RoomInfo, ServerMessage};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -85,7 +85,7 @@ impl RoomHandle {
         let Room { info, game, peers } = &mut *room;
         match crate::game::apply(game, &info.players, &name, &msg) {
             Ok(reply) => {
-                info.in_game = game.started;
+                info.in_game = game.phase != Phase::Lobby;
                 broadcast(peers, &reply);
             }
             Err(message) => send_to(peers, &name, &ServerMessage::Error { message }),

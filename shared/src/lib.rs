@@ -68,10 +68,24 @@ pub struct Team {
     pub tricks_won: u8,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[ts(export, export_to = BINDINGS_DIR)]
+#[serde(rename_all = "snake_case")]
+pub enum Phase {
+    #[default]
+    Lobby,
+    Bidding1,
+    Bidding2,
+    AwaitingDiscard,
+    Playing,
+    HandOver,
+    GameOver,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
 #[ts(export, export_to = BINDINGS_DIR)]
 pub struct Game {
-    pub started: bool,
+    pub phase: Phase,
     pub turn: usize,
     pub dealer: usize,
     pub teams: [Team; 2],
@@ -87,24 +101,13 @@ pub struct Game {
 #[ts(export, export_to = BINDINGS_DIR)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
-    Chat {
-        text: String,
-    },
+    Chat { text: String },
     StartGame,
-    OrderUp {
-        alone: bool,
-    },
-    CallTrump {
-        suit: Suit,
-        alone: bool,
-    },
+    OrderUp { alone: bool },
+    CallTrump { suit: Suit, alone: bool },
     Pass,
-    Discard {
-        card: Card,
-    },
-    PlayCard {
-        card: Card,
-    },
+    Discard { card: Card },
+    PlayCard { card: Card },
 }
 
 /// Server -> frontend
