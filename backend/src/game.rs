@@ -156,7 +156,11 @@ pub fn apply(
             });
             info!("{player} played {card:?}");
 
-            let trick_size = if game.maker.is_some_and(|m| m.alone) { 3 } else { 4 };
+            let trick_size = if game.maker.is_some_and(|m| m.alone) {
+                3
+            } else {
+                4
+            };
             if game.trick.len() < trick_size {
                 game.turn = next_seat(game, turn);
             } else {
