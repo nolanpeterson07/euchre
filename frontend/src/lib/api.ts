@@ -1,0 +1,16 @@
+import type { RoomInfo } from "@/lib/bindings/RoomInfo"
+
+export const listRooms = (): Promise<RoomInfo[]> =>
+  fetch("/rooms").then((r) => r.json())
+
+export const createRoom = (name: string): Promise<RoomInfo> =>
+  fetch("/rooms", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  }).then((r) => r.json())
+
+export const wsUrl = (roomId: string, player: string) => {
+  const proto = location.protocol === "https:" ? "wss" : "ws"
+  return `${proto}://${location.host}/ws/${roomId}?name=${encodeURIComponent(player)}`
+}

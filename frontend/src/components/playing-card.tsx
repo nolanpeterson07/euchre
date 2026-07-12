@@ -1,27 +1,6 @@
 import type { Card } from "@/lib/bindings/Card"
-import type { Rank } from "@/lib/bindings/Rank"
-import type { Suit } from "@/lib/bindings/Suit"
+import { isRed, RANK_LABEL, SUIT_SYMBOL } from "@/lib/cards"
 import { cn } from "@/lib/utils"
-
-const SUIT_SYMBOL: Record<Suit, string> = {
-  clubs: "♣",
-  diamonds: "♦",
-  hearts: "♥",
-  spades: "♠",
-}
-
-const RANK_LABEL: Record<Rank, string> = {
-  nine: "9",
-  ten: "10",
-  jack: "J",
-  queen: "Q",
-  king: "K",
-  ace: "A",
-}
-
-function isRed(suit: Suit) {
-  return suit === "diamonds" || suit === "hearts"
-}
 
 interface PlayingCardProps {
   card: Card
