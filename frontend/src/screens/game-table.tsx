@@ -7,7 +7,7 @@ import type { ClientMessage } from "@/lib/bindings/ClientMessage"
 import type { Game } from "@/lib/bindings/Game"
 import type { RoomInfo } from "@/lib/bindings/RoomInfo"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ALL_SUITS, isRed, SUIT_SYMBOL } from "@/lib/cards"
+import { ALL_SUITS, effectiveSuit, isRed, SUIT_SYMBOL } from "@/lib/cards"
 
 interface GameTableProps {
   name: string
@@ -33,6 +33,15 @@ export function GameTable({ name, room, game, send }: GameTableProps) {
       {seat === game.turn && " ←"}
     </span>
   )
+
+  const isPlayable = (card: Card) => {
+    if (game.phase !== "playing" || !game.trump) return true
+    const lead = game.trick[0]
+    if (!lead) return true
+    const led = effectiveSuit(lead.card, game.trump)
+    if (effectiveSuit(card, game.trump) === led) return true
+    return !myHand.some((c) => effectiveSuit(c, game.trump!) === led)
+  }
 
   const cardAction: ((card: Card) => void) | undefined = !myTurn
     ? undefined
@@ -159,6 +168,7 @@ export function GameTable({ name, room, game, send }: GameTableProps) {
           <PlayingCard
             key={`${card.rank}-${card.suit}`}
             card={card}
+            disabled={!isPlayable(card)}
             onClick={cardAction && (() => cardAction(card))}
           />
         ))}

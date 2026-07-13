@@ -1,3 +1,4 @@
+import type { Card } from "@/lib/bindings/Card"
 import type { Rank } from "@/lib/bindings/Rank"
 import type { Suit } from "@/lib/bindings/Suit"
 
@@ -20,3 +21,6 @@ export const RANK_LABEL: Record<Rank, string> = {
 }
 
 export const isRed = (suit: Suit) => suit === "diamonds" || suit === "hearts"
+
+export const effectiveSuit = (card: Card, trump: Suit): Suit =>
+  card.rank === "jack" && isRed(card.suit) === isRed(trump) ? trump : card.suit
