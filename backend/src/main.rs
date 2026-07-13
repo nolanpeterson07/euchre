@@ -1,10 +1,12 @@
 mod game;
-mod room;
 mod rate_limiter;
+mod room;
 
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
+use crate::rate_limiter::{RateLimiter, rate_limit};
+use crate::room::Lobby;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -17,8 +19,6 @@ use tokio::sync::mpsc;
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
-use crate::rate_limiter::{rate_limit, RateLimiter};
-use crate::room::Lobby;
 
 #[tokio::main]
 async fn main() {
@@ -76,8 +76,14 @@ async fn create_room(State(lobby): State<Lobby>, Json(req): Json<CreateRoom>) ->
     Json(lobby.create(req.name))
 }
 
-async fn get_room(State(lobby): State<Lobby>, Path(id): Path<Uuid>) -> Result<Json<RoomInfo>, StatusCode> {
-    lobby.get(id).map(|r| Json(r.info())).ok_or(StatusCode::NOT_FOUND)
+async fn get_room(
+    State(lobby): State<Lobby>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<RoomInfo>, StatusCode> {
+    lobby
+        .get(id)
+        .map(|r| Json(r.info()))
+        .ok_or(StatusCode::NOT_FOUND)
 }
 
 #[derive(Deserialize)]

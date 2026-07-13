@@ -1,12 +1,12 @@
-use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr};
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
 use axum::extract::{ConnectInfo, Request, State};
 use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use log::warn;
+use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 #[derive(Clone, Default)]
 pub struct RateLimiter(Arc<Mutex<HashMap<IpAddr, Bucket>>>);
