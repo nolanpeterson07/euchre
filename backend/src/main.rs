@@ -1,11 +1,19 @@
 mod game;
 mod room;
 
+use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, Query, State};
+use axum::extract::{ConnectInfo, Path, Query, Request, State};
+use axum::http::StatusCode;
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get};
 use axum::{Json, Router};
-use log::info;
+use log::{info, warn};
 use serde::Deserialize;
 use shared::{RoomInfo, ServerMessage};
 use tokio::sync::mpsc;
@@ -19,11 +27,26 @@ use crate::room::Lobby;
 async fn main() {
     env_logger::init();
 
+    let lobby = Lobby::default();
+    tokio::spawn({
+        let lobby = lobby.clone();
+        async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(60));
+            loop {
+                tick.tick().await;
+                lobby.remove_idle(Duration::from_secs(10 * 60));
+            }
+        }
+    });
+
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     info!("listening on {}", listener.local_addr().unwrap());
-    axum::serve(listener, router(Lobby::default()))
-        .await
-        .unwrap();
+    axum::serve(
+        listener,
+        router(lobby).into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .unwrap();
 }
 
 fn router(lobby: Lobby) -> Router {
@@ -35,7 +58,61 @@ fn router(lobby: Lobby) -> Router {
         .route("/ws/{id}", any(ws_handler))
         .fallback_service(frontend)
         .layer(CorsLayer::permissive())
+        .layer(axum::middleware::from_fn_with_state(
+            RateLimiter::default(),
+            rate_limit,
+        ))
         .with_state(lobby)
+}
+
+#[derive(Clone, Default)]
+struct RateLimiter(Arc<Mutex<HashMap<IpAddr, Bucket>>>);
+
+struct Bucket {
+    tokens: f64,
+    last: Instant,
+}
+
+const RATE: f64 = 10.0;
+const BURST: f64 = 30.0;
+
+impl RateLimiter {
+    fn allow(&self, ip: IpAddr) -> bool {
+        let mut map = self.0.lock().unwrap();
+
+        if map.len() > 10_000 {
+            map.retain(|_, b| b.last.elapsed().as_secs_f64() * RATE < BURST);
+        }
+        let now = Instant::now();
+        let b = map.entry(ip).or_insert(Bucket {
+            tokens: BURST,
+            last: now,
+        });
+
+        b.tokens = (b.tokens + now.duration_since(b.last).as_secs_f64() * RATE).min(BURST);
+        b.last = now;
+
+        if b.tokens >= 1.0 {
+            b.tokens -= 1.0;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+async fn rate_limit(
+    State(limiter): State<RateLimiter>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    req: Request,
+    next: Next,
+) -> Response {
+    if limiter.allow(addr.ip()) {
+        next.run(req).await
+    } else {
+        warn!("rate limited {}", addr.ip());
+        StatusCode::TOO_MANY_REQUESTS.into_response()
+    }
 }
 
 async fn list_rooms(State(lobby): State<Lobby>) -> Json<Vec<RoomInfo>> {
@@ -88,6 +165,9 @@ async fn handle_socket(mut socket: WebSocket, lobby: Lobby, id: Uuid, name: Stri
 
     let _ = send(&mut socket, &ServerMessage::Joined { room: info }).await;
 
+    let mut tokens: f64 = 10.0;
+    let mut last = Instant::now();
+
     loop {
         tokio::select! {
             msg = out_rx.recv() => match msg {
@@ -100,6 +180,14 @@ async fn handle_socket(mut socket: WebSocket, lobby: Lobby, id: Uuid, name: Stri
             },
             msg = socket.recv() => match msg {
                 Some(Ok(Message::Text(text))) => {
+                    let now = Instant::now();
+                    tokens = (tokens + now.duration_since(last).as_secs_f64() * 5.0).min(10.0);
+                    last = now;
+                    if tokens < 1.0 {
+                        warn!("dropping message from {name}: rate limited");
+                        continue;
+                    }
+                    tokens -= 1.0;
                     let Ok(msg) = serde_json::from_str(&text) else { continue }; // ignore malformed
                     room.send(name.clone(), msg);
                 }

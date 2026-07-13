@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use shared::{ClientMessage, Game, MAX_PLAYERS, Phase, RoomInfo, ServerMessage};
 use tokio::sync::mpsc;
@@ -20,6 +21,7 @@ impl Lobby {
             info: info.clone(),
             game: Game::default(),
             peers: HashMap::new(),
+            last_active: Instant::now(),
         };
         self.0
             .lock()
@@ -44,6 +46,18 @@ impl Lobby {
     pub fn remove(&self, id: Uuid) {
         self.0.lock().unwrap().remove(&id);
     }
+
+    /// Drop rooms with no activity (join, leave, or client message) for longer than `max_idle`
+    pub fn remove_idle(&self, max_idle: Duration) {
+        self.0.lock().unwrap().retain(|_, h| {
+            let mut room = h.0.lock().unwrap();
+            let live = room.last_active.elapsed() < max_idle;
+            if !live {
+                room.peers.clear();
+            }
+            live
+        });
+    }
 }
 
 /// All the state for one room, behind a single per-room lock.
@@ -51,6 +65,7 @@ struct Room {
     info: RoomInfo,
     game: Game,
     peers: HashMap<String, mpsc::Sender<String>>,
+    last_active: Instant,
 }
 
 #[derive(Clone)]
@@ -65,6 +80,7 @@ impl RoomHandle {
         if rejected {
             return Err("room full or name taken".to_string());
         }
+        room.last_active = Instant::now();
         room.peers.insert(name.clone(), out);
         room.info.players.push(name.clone());
         broadcast(&room.peers, &ServerMessage::PlayerJoined { name });
@@ -74,6 +90,7 @@ impl RoomHandle {
     /// Returns true if the room is now empty and should be removed from the lobby.
     pub fn leave(&self, name: String) -> bool {
         let mut room = self.0.lock().unwrap();
+        room.last_active = Instant::now();
         room.peers.remove(&name);
         room.info.players.retain(|p| p != &name);
         broadcast(&room.peers, &ServerMessage::PlayerLeft { name });
@@ -82,7 +99,8 @@ impl RoomHandle {
 
     pub fn send(&self, name: String, msg: ClientMessage) {
         let mut room = self.0.lock().unwrap();
-        let Room { info, game, peers } = &mut *room;
+        room.last_active = Instant::now();
+        let Room { info, game, peers, .. } = &mut *room;
         match crate::game::apply(game, &info.players, &name, &msg) {
             Ok(reply) => {
                 info.in_game = game.phase != Phase::Lobby;
