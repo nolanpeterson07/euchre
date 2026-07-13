@@ -1,5 +1,6 @@
 mod game;
 mod room;
+mod rate_limiter;
 
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
@@ -20,7 +21,7 @@ use tokio::sync::mpsc;
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
-
+use crate::rate_limiter::{rate_limit, RateLimiter};
 use crate::room::Lobby;
 
 #[tokio::main]
@@ -63,56 +64,6 @@ fn router(lobby: Lobby) -> Router {
             rate_limit,
         ))
         .with_state(lobby)
-}
-
-#[derive(Clone, Default)]
-struct RateLimiter(Arc<Mutex<HashMap<IpAddr, Bucket>>>);
-
-struct Bucket {
-    tokens: f64,
-    last: Instant,
-}
-
-const RATE: f64 = 10.0;
-const BURST: f64 = 30.0;
-
-impl RateLimiter {
-    fn allow(&self, ip: IpAddr) -> bool {
-        let mut map = self.0.lock().unwrap();
-
-        if map.len() > 10_000 {
-            map.retain(|_, b| b.last.elapsed().as_secs_f64() * RATE < BURST);
-        }
-        let now = Instant::now();
-        let b = map.entry(ip).or_insert(Bucket {
-            tokens: BURST,
-            last: now,
-        });
-
-        b.tokens = (b.tokens + now.duration_since(b.last).as_secs_f64() * RATE).min(BURST);
-        b.last = now;
-
-        if b.tokens >= 1.0 {
-            b.tokens -= 1.0;
-            true
-        } else {
-            false
-        }
-    }
-}
-
-async fn rate_limit(
-    State(limiter): State<RateLimiter>,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    req: Request,
-    next: Next,
-) -> Response {
-    if limiter.allow(addr.ip()) {
-        next.run(req).await
-    } else {
-        warn!("rate limited {}", addr.ip());
-        StatusCode::TOO_MANY_REQUESTS.into_response()
-    }
 }
 
 async fn list_rooms(State(lobby): State<Lobby>) -> Json<Vec<RoomInfo>> {
