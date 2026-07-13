@@ -5,7 +5,7 @@ use std::time::Instant;
 use axum::extract::{ConnectInfo, Request, State};
 use axum::http::StatusCode;
 use axum::middleware::Next;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use log::warn;
 
 #[derive(Clone, Default)]

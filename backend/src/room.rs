@@ -72,6 +72,10 @@ struct Room {
 pub struct RoomHandle(Arc<Mutex<Room>>);
 
 impl RoomHandle {
+    pub fn info(&self) -> RoomInfo {
+        self.0.lock().unwrap().info.clone()
+    }
+
     pub fn join(&self, name: String, out: mpsc::Sender<String>) -> Result<RoomInfo, String> {
         let mut room = self.0.lock().unwrap();
         let rejected = name.is_empty()

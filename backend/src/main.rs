@@ -2,16 +2,12 @@ mod game;
 mod room;
 mod rate_limiter;
 
-use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr};
-use std::sync::{Arc, Mutex};
+use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{ConnectInfo, Path, Query, Request, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::middleware::Next;
-use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get};
 use axum::{Json, Router};
 use log::{info, warn};
@@ -56,6 +52,7 @@ fn router(lobby: Lobby) -> Router {
 
     Router::new()
         .route("/rooms", get(list_rooms).post(create_room))
+        .route("/rooms/{id}", get(get_room))
         .route("/ws/{id}", any(ws_handler))
         .fallback_service(frontend)
         .layer(CorsLayer::permissive())
@@ -77,6 +74,10 @@ struct CreateRoom {
 
 async fn create_room(State(lobby): State<Lobby>, Json(req): Json<CreateRoom>) -> Json<RoomInfo> {
     Json(lobby.create(req.name))
+}
+
+async fn get_room(State(lobby): State<Lobby>, Path(id): Path<Uuid>) -> Result<Json<RoomInfo>, StatusCode> {
+    lobby.get(id).map(|r| Json(r.info())).ok_or(StatusCode::NOT_FOUND)
 }
 
 #[derive(Deserialize)]
