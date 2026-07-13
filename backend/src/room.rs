@@ -100,7 +100,9 @@ impl RoomHandle {
     pub fn send(&self, name: String, msg: ClientMessage) {
         let mut room = self.0.lock().unwrap();
         room.last_active = Instant::now();
-        let Room { info, game, peers, .. } = &mut *room;
+        let Room {
+            info, game, peers, ..
+        } = &mut *room;
         match crate::game::apply(game, &info.players, &name, &msg) {
             Ok(reply) => {
                 info.in_game = game.phase != Phase::Lobby;
