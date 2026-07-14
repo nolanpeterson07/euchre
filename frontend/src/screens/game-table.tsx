@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 import { CardBack, PlayingCard } from "@/components/playing-card"
 import { Button } from "@/components/ui/button"
@@ -16,8 +16,18 @@ interface GameTableProps {
   send: (msg: ClientMessage) => void
 }
 
+const TRICK_PAUSE_MS = 3000
+
 export function GameTable({ name, room, game, send }: GameTableProps) {
   const [alone, setAlone] = useState(false)
+
+  const tricksPlayed = game.teams[0].tricks_won + game.teams[1].tricks_won
+  const [seenTricks, setSeenTricks] = useState(0)
+  const showLastTrick = tricksPlayed > 0 && seenTricks < tricksPlayed
+  useEffect(() => {
+    const t = setTimeout(() => setSeenTricks(tricksPlayed), TRICK_PAUSE_MS)
+    return () => clearTimeout(t)
+  }, [tricksPlayed])
   const mySeat = room.players.indexOf(name)
   const myTurn = game.turn === mySeat
   const myHand = game.hand
@@ -91,20 +101,36 @@ export function GameTable({ name, room, game, send }: GameTableProps) {
           </div>
         </div>
 
-        <div className="flex items-center justify-center gap-4 self-stretch">
-          {game.trick.map((p) => (
-            <div key={p.player} className="play-in flex flex-col items-center gap-1">
-              <PlayingCard card={p.card} />
-              <span className="text-xs text-muted-foreground">
-                {room.players[p.player]}
-              </span>
-            </div>
-          ))}
-          {game.upcard && (game.phase === "bidding1" || game.phase === "bidding2") && (
-            <div className="play-in flex flex-col items-center gap-1">
-              <PlayingCard card={game.upcard} />
-              <span className="text-xs text-muted-foreground">upcard</span>
-            </div>
+        <div className="flex flex-col items-center justify-center gap-2 self-stretch">
+          <div className="flex items-center justify-center gap-4">
+            {(showLastTrick ? game.last_trick : game.trick).map((p) => (
+              <div key={p.player} className="play-in flex flex-col items-center gap-1">
+                <PlayingCard
+                  card={p.card}
+                  className={
+                    showLastTrick && p.player === game.trick_winner
+                      ? "ring-2 ring-ring"
+                      : undefined
+                  }
+                />
+                <span className="text-xs text-muted-foreground">
+                  {room.players[p.player]}
+                </span>
+              </div>
+            ))}
+            {game.upcard && (game.phase === "bidding1" || game.phase === "bidding2") && (
+              <div className="play-in flex flex-col items-center gap-1">
+                <PlayingCard card={game.upcard} />
+                <span className="text-xs text-muted-foreground">upcard</span>
+              </div>
+            )}
+          </div>
+          {showLastTrick && game.trick_winner != null && (
+            <p className="text-xs font-medium">
+              {game.trick_winner === mySeat
+                ? "You took the trick"
+                : `${room.players[game.trick_winner]} took the trick`}
+            </p>
           )}
         </div>
 

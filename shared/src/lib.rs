@@ -96,6 +96,9 @@ pub struct Game {
     #[serde(skip)]
     pub hands: [Hand; 4],
     pub trick: Vec<PlayedCard>,
+    /// The previous completed trick and who took it, so clients can show it briefly.
+    pub last_trick: Vec<PlayedCard>,
+    pub trick_winner: Option<usize>,
 }
 
 /// Frontend -> server

@@ -171,7 +171,8 @@ pub fn apply(
                     .unwrap()
                     .player;
 
-                game.trick.clear();
+                game.last_trick = std::mem::take(&mut game.trick);
+                game.trick_winner = Some(winner);
                 game.teams[winner % 2].tricks_won += 1;
                 game.turn = winner;
                 info!("trick won by seat {winner}");
@@ -205,6 +206,8 @@ fn deal(game: &mut Game) {
     game.trump = None;
     game.maker = None;
     game.trick.clear();
+    game.last_trick.clear();
+    game.trick_winner = None;
     for team in &mut game.teams {
         team.tricks_won = 0;
     }
