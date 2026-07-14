@@ -1,13 +1,13 @@
 import { Button } from "@/components/ui/button"
 import type { ClientMessage } from "@/lib/bindings/ClientMessage"
-import type { Game } from "@/lib/bindings/Game"
 import type { RoomInfo } from "@/lib/bindings/RoomInfo"
+import type { GameView } from "@/hooks/use-game-socket"
 import { GameTable } from "@/screens/game-table"
 
 interface RoomScreenProps {
   name: string
   room: RoomInfo
-  game: Game | null
+  game: GameView | null
   send: (msg: ClientMessage) => void
   leave: () => void
 }

@@ -4,15 +4,15 @@ import { CardBack, PlayingCard } from "@/components/playing-card"
 import { Button } from "@/components/ui/button"
 import type { Card } from "@/lib/bindings/Card"
 import type { ClientMessage } from "@/lib/bindings/ClientMessage"
-import type { Game } from "@/lib/bindings/Game"
 import type { RoomInfo } from "@/lib/bindings/RoomInfo"
+import type { GameView } from "@/hooks/use-game-socket"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ALL_SUITS, effectiveSuit, isRed, SUIT_SYMBOL } from "@/lib/cards"
 
 interface GameTableProps {
   name: string
   room: RoomInfo
-  game: Game
+  game: GameView
   send: (msg: ClientMessage) => void
 }
 
@@ -20,7 +20,7 @@ export function GameTable({ name, room, game, send }: GameTableProps) {
   const [alone, setAlone] = useState(false)
   const mySeat = room.players.indexOf(name)
   const myTurn = game.turn === mySeat
-  const myHand = game.hands[mySeat] ?? []
+  const myHand = game.hand
   const left = (mySeat + 1) % 4
   const partner = (mySeat + 2) % 4
   const right = (mySeat + 3) % 4
@@ -68,7 +68,7 @@ export function GameTable({ name, room, game, send }: GameTableProps) {
         <div className="flex flex-col items-center gap-2">
           {seatLabel(partner)}
           <div className="flex -space-x-9">
-            {game.hands[partner]?.map((_, i) => (
+            {Array.from({ length: game.handCounts[partner] }, (_, i) => (
               <CardBack key={i} className="h-16 w-11" />
             ))}
           </div>
@@ -78,7 +78,7 @@ export function GameTable({ name, room, game, send }: GameTableProps) {
         <div className="flex flex-col items-center gap-2 self-center">
           {seatLabel(left)}
           <div className="flex flex-col -space-y-9">
-            {game.hands[left]?.map((_, i) => (
+            {Array.from({ length: game.handCounts[left] }, (_, i) => (
               <CardBack key={i} className="h-16 w-11" />
             ))}
           </div>
@@ -104,7 +104,7 @@ export function GameTable({ name, room, game, send }: GameTableProps) {
         <div className="flex flex-col items-center gap-2 self-center">
           {seatLabel(right)}
           <div className="flex flex-col -space-y-9">
-            {game.hands[right]?.map((_, i) => (
+            {Array.from({ length: game.handCounts[right] }, (_, i) => (
               <CardBack key={i} className="h-16 w-11" />
             ))}
           </div>

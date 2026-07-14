@@ -92,6 +92,8 @@ pub struct Game {
     pub trump: Option<Suit>,
     pub upcard: Option<Card>,
     pub maker: Option<Bidder>,
+    /// Server-only: never serialized, so hidden cards can't leak to clients.
+    #[serde(skip)]
     pub hands: [Hand; 4],
     pub trick: Vec<PlayedCard>,
 }
@@ -115,10 +117,10 @@ pub enum ClientMessage {
 #[ts(export, export_to = BINDINGS_DIR)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
-    Joined { room: RoomInfo },
+    Joined { room: RoomInfo, token: Uuid },
     PlayerJoined { name: String },
     PlayerLeft { name: String },
     Chat { from: String, text: String },
-    GameState { game: Game },
+    GameState { game: Game, hand: Hand, hand_counts: [u8; 4] },
     Error { message: String },
 }

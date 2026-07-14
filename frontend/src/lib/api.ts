@@ -13,7 +13,8 @@ export const createRoom = (name: string): Promise<RoomInfo> =>
 export const getRoom = (id: string): Promise<RoomInfo | null> =>
   fetch(`/rooms/${id}`).then((r) => (r.ok ? r.json() : null))
 
-export const wsUrl = (roomId: string, player: string) => {
+export const wsUrl = (roomId: string, player: string, token?: string) => {
   const proto = location.protocol === "https:" ? "wss" : "ws"
-  return `${proto}://${location.host}/ws/${roomId}?name=${encodeURIComponent(player)}`
+  const query = new URLSearchParams({ name: player, ...(token && { token }) })
+  return `${proto}://${location.host}/ws/${roomId}?${query}`
 }

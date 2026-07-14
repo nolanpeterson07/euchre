@@ -20,17 +20,20 @@ const WINNING_SCORE: u8 = 10;
 
 const TRICKS_PER_HAND: u8 = 5;
 
+/// Applies an action to the game. `Ok(None)` means the game changed and the new
+/// state should be sent to every player (each seeing only their own hand);
+/// `Ok(Some(msg))` is a message to broadcast as-is.
 pub fn apply(
     game: &mut Game,
     players: &[String],
     player: &str,
     action: &ClientMessage,
-) -> Result<ServerMessage, String> {
+) -> Result<Option<ServerMessage>, String> {
     match action {
-        ClientMessage::Chat { text } => Ok(ServerMessage::Chat {
+        ClientMessage::Chat { text } => Ok(Some(ServerMessage::Chat {
             from: player.to_string(),
             text: text.clone(),
-        }),
+        })),
         ClientMessage::StartGame => {
             if game.phase != Phase::Lobby {
                 return Err("game already started".into());
@@ -50,7 +53,7 @@ pub fn apply(
             ];
             deal(game);
             info!("game started, dealer={}", game.dealer);
-            Ok(ServerMessage::GameState { game: game.clone() })
+            Ok(None)
         }
         ClientMessage::OrderUp { alone } => {
             require_phase(game, Phase::Bidding1)?;
@@ -72,7 +75,7 @@ pub fn apply(
             }
 
             info!("{player} ordered up, alone={alone}");
-            Ok(ServerMessage::GameState { game: game.clone() })
+            Ok(None)
         }
         ClientMessage::CallTrump { suit, alone } => {
             require_phase(game, Phase::Bidding2)?;
@@ -90,7 +93,7 @@ pub fn apply(
             game.turn = next_seat(game, game.dealer); // dealer's left leads the first trick
 
             info!("{player} called {suit:?}, alone={alone}");
-            Ok(ServerMessage::GameState { game: game.clone() })
+            Ok(None)
         }
         ClientMessage::Pass => {
             if !matches!(game.phase, Phase::Bidding1 | Phase::Bidding2) {
@@ -114,7 +117,7 @@ pub fn apply(
             } else {
                 game.turn = (turn + 1) % players.len();
             }
-            Ok(ServerMessage::GameState { game: game.clone() })
+            Ok(None)
         }
         ClientMessage::Discard { card } => {
             require_phase(game, Phase::AwaitingDiscard)?;
@@ -125,7 +128,7 @@ pub fn apply(
             game.turn = next_seat(game, game.dealer);
 
             info!("{player} discarded");
-            Ok(ServerMessage::GameState { game: game.clone() })
+            Ok(None)
         }
         ClientMessage::PlayCard { card } => {
             require_phase(game, Phase::Playing)?;
@@ -177,7 +180,7 @@ pub fn apply(
                     score_hand(game, players);
                 }
             }
-            Ok(ServerMessage::GameState { game: game.clone() })
+            Ok(None)
         }
     }
 }

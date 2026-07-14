@@ -94,16 +94,17 @@ async fn get_room(
 #[derive(Deserialize)]
 struct JoinQuery {
     name: String,
+    token: Option<Uuid>,
 }
 
-/// Join a room by UUID: ws://host/ws/{room_id}?name={player}
+/// Join a room by UUID: ws://host/ws/{room_id}?name={player}&token={seat_token}
 async fn ws_handler(
     State(lobby): State<Lobby>,
     Path(id): Path<Uuid>,
     Query(q): Query<JoinQuery>,
     ws: WebSocketUpgrade,
 ) -> axum::response::Response {
-    ws.on_upgrade(move |socket| handle_socket(socket, lobby, id, q.name))
+    ws.on_upgrade(move |socket| handle_socket(socket, lobby, id, q))
 }
 
 async fn send(socket: &mut WebSocket, msg: &ServerMessage) -> Result<(), axum::Error> {
@@ -112,13 +113,16 @@ async fn send(socket: &mut WebSocket, msg: &ServerMessage) -> Result<(), axum::E
 }
 
 /// Pumps messages between one websocket and its room.
-async fn handle_socket(mut socket: WebSocket, lobby: Lobby, id: Uuid, name: String) {
+async fn handle_socket(mut socket: WebSocket, lobby: Lobby, id: Uuid, q: JoinQuery) {
+    let name = q.name;
     let (out_tx, mut out_rx) = mpsc::channel(64);
     let joined = match lobby.get(id) {
         None => Err("room not found".to_string()),
-        Some(room) => room.join(name.clone(), out_tx).map(|info| (room, info)),
+        Some(room) => room
+            .join(name.clone(), q.token, out_tx.clone())
+            .map(|(info, token)| (room, info, token)),
     };
-    let (room, info) = match joined {
+    let (room, info, token) = match joined {
         Ok(j) => j,
         Err(message) => {
             let _ = send(&mut socket, &ServerMessage::Error { message }).await;
@@ -126,7 +130,8 @@ async fn handle_socket(mut socket: WebSocket, lobby: Lobby, id: Uuid, name: Stri
         }
     };
 
-    let _ = send(&mut socket, &ServerMessage::Joined { room: info }).await;
+    let _ = send(&mut socket, &ServerMessage::Joined { room: info, token }).await;
+    room.sync(&name);
 
     let mut tokens: f64 = 10.0;
     let mut last = Instant::now();
@@ -172,7 +177,7 @@ async fn handle_socket(mut socket: WebSocket, lobby: Lobby, id: Uuid, name: Stri
         }
     }
 
-    if room.leave(name) {
+    if room.leave(name, &out_tx) {
         lobby.remove(id);
     }
 }

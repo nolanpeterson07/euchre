@@ -20,6 +20,7 @@ impl Lobby {
         let room = Room {
             info: info.clone(),
             game: Game::default(),
+            tokens: vec![],
             peers: HashMap::new(),
             last_active: Instant::now(),
         };
@@ -64,6 +65,7 @@ impl Lobby {
 struct Room {
     info: RoomInfo,
     game: Game,
+    tokens: Vec<Uuid>,
     peers: HashMap<String, mpsc::Sender<String>>,
     last_active: Instant,
 }
@@ -76,29 +78,66 @@ impl RoomHandle {
         self.0.lock().unwrap().info.clone()
     }
 
-    pub fn join(&self, name: String, out: mpsc::Sender<String>) -> Result<RoomInfo, String> {
+    pub fn join(
+        &self,
+        name: String,
+        token: Option<Uuid>,
+        out: mpsc::Sender<String>,
+    ) -> Result<(RoomInfo, Uuid), String> {
         let mut room = self.0.lock().unwrap();
+        
+        if let Some(token) = token {
+            let seat = room.tokens.iter().position(|t| *t == token);
+            if seat.is_some_and(|s| room.info.players[s] == name) {
+                room.last_active = Instant::now();
+                room.peers.insert(name, out);
+                return Ok((room.info.clone(), token));
+            }
+        }
+
         let rejected = name.is_empty()
+            || room.game.phase != Phase::Lobby
             || room.peers.contains_key(&name)
             || room.info.players.len() >= MAX_PLAYERS;
         if rejected {
-            return Err("room full or name taken".to_string());
+            return Err("room full, in game, or name taken".to_string());
         }
         room.last_active = Instant::now();
+        let token = Uuid::new_v4();
+        room.tokens.push(token);
         room.peers.insert(name.clone(), out);
         room.info.players.push(name.clone());
         broadcast(&room.peers, &ServerMessage::PlayerJoined { name });
-        Ok(room.info.clone())
+        Ok((room.info.clone(), token))
     }
 
-    /// Returns true if the room is now empty and should be removed from the lobby.
-    pub fn leave(&self, name: String) -> bool {
+    /// Returns true if the room is now empty and should be removed from the lobby
+    pub fn leave(&self, name: String, out: &mpsc::Sender<String>) -> bool {
         let mut room = self.0.lock().unwrap();
         room.last_active = Instant::now();
+        if !room.peers.get(&name).is_some_and(|cur| cur.same_channel(out)) {
+            return false;
+        }
         room.peers.remove(&name);
-        room.info.players.retain(|p| p != &name);
+        if room.game.phase != Phase::Lobby {
+            return false;
+        }
+        if let Some(seat) = room.info.players.iter().position(|p| p == &name) {
+            room.info.players.remove(seat);
+            room.tokens.remove(seat);
+        }
         broadcast(&room.peers, &ServerMessage::PlayerLeft { name });
         room.info.players.is_empty()
+    }
+
+    /// Push the current game state (redacted for `name`) to just that peer
+    pub fn sync(&self, name: &str) {
+        let room = self.0.lock().unwrap();
+        if room.game.phase == Phase::Lobby {
+            return;
+        }
+        let seat = room.info.players.iter().position(|p| p == name);
+        send_to(&room.peers, name, &state_for(&room.game, seat));
     }
 
     pub fn send(&self, name: String, msg: ClientMessage) {
@@ -108,12 +147,27 @@ impl RoomHandle {
             info, game, peers, ..
         } = &mut *room;
         match crate::game::apply(game, &info.players, &name, &msg) {
-            Ok(reply) => {
+            Ok(None) => {
                 info.in_game = game.phase != Phase::Lobby;
-                broadcast(peers, &reply);
+                for (peer, out) in peers.iter() {
+                    let seat = info.players.iter().position(|p| p == peer);
+                    let view = state_for(game, seat);
+                    let _ = out.try_send(serde_json::to_string(&view).unwrap());
+                }
             }
+            Ok(Some(reply)) => broadcast(peers, &reply),
             Err(message) => send_to(peers, &name, &ServerMessage::Error { message }),
         }
+    }
+}
+
+/// The game as `seat` is allowed to see it: their own cards, counts for everyone.
+/// `game.hands` itself is `#[serde(skip)]`
+fn state_for(game: &Game, seat: Option<usize>) -> ServerMessage {
+    ServerMessage::GameState {
+        game: game.clone(),
+        hand: seat.map(|s| game.hands[s].clone()).unwrap_or_default(),
+        hand_counts: game.hands.each_ref().map(|h| h.len() as u8),
     }
 }
 
