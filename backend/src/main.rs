@@ -18,6 +18,7 @@ use shared::{RoomInfo, ServerMessage};
 use tokio::sync::mpsc;
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
+use tower_http::set_status::SetStatus;
 use uuid::Uuid;
 
 #[tokio::main]
@@ -48,11 +49,15 @@ async fn main() {
 
 fn router(lobby: Lobby) -> Router {
     let dist = concat!(env!("CARGO_MANIFEST_DIR"), "/../frontend/dist");
-    let frontend = ServeDir::new(dist).fallback(ServeFile::new(format!("{dist}/index.html")));
+    let index = ServeFile::new(format!("{dist}/index.html"));
+
+    let frontend =
+        ServeDir::new(dist).fallback(SetStatus::new(index.clone(), StatusCode::NOT_FOUND));
 
     Router::new()
         .route("/rooms", get(list_rooms).post(create_room))
         .route("/rooms/{id}", get(get_room))
+        .route_service("/room/{id}", index)
         .route("/ws/{id}", any(ws_handler))
         .fallback_service(frontend)
         .layer(CorsLayer::permissive())
