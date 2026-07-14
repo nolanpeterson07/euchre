@@ -120,10 +120,6 @@ pub fn apply(
             require_phase(game, Phase::AwaitingDiscard)?;
             let turn = require_turn(game, players, player)?;
 
-            if card == &game.upcard.unwrap() {
-                return Err("cannot discard the upcard".into());
-            }
-
             take_card(game, turn, card)?;
             game.phase = Phase::Playing;
             game.turn = next_seat(game, game.dealer);
