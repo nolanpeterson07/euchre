@@ -43,6 +43,13 @@ export function GameTable({ name, room, game, send }: GameTableProps) {
     return !myHand.some((c) => effectiveSuit(c, game.trump!) === led)
   }
 
+  const makerTeam = (game.maker?.player ?? 0) % 2
+  const makerTricks = game.teams[makerTeam].tricks_won
+  const handResult =
+    makerTricks < 3
+      ? `${makerTeam === myTeam ? "We" : "They"} got euchred!`
+      : `${makerTeam === myTeam ? "We" : "They"} made it with ${makerTricks} tricks`
+
   const cardAction: ((card: Card) => void) | undefined = !myTurn
     ? undefined
     : game.phase === "playing"
@@ -67,7 +74,7 @@ export function GameTable({ name, room, game, send }: GameTableProps) {
         <div />
         <div className="flex flex-col items-center gap-2">
           {seatLabel(partner)}
-          <div className="flex -space-x-9">
+          <div className="deal-stagger flex -space-x-9">
             {Array.from({ length: game.handCounts[partner] }, (_, i) => (
               <CardBack key={i} className="h-16 w-11" />
             ))}
@@ -77,7 +84,7 @@ export function GameTable({ name, room, game, send }: GameTableProps) {
 
         <div className="flex flex-col items-center gap-2 self-center">
           {seatLabel(left)}
-          <div className="flex flex-col -space-y-9">
+          <div className="deal-stagger flex flex-col -space-y-9">
             {Array.from({ length: game.handCounts[left] }, (_, i) => (
               <CardBack key={i} className="h-16 w-11" />
             ))}
@@ -86,7 +93,7 @@ export function GameTable({ name, room, game, send }: GameTableProps) {
 
         <div className="flex items-center justify-center gap-4 self-stretch">
           {game.trick.map((p) => (
-            <div key={p.player} className="flex flex-col items-center gap-1">
+            <div key={p.player} className="play-in flex flex-col items-center gap-1">
               <PlayingCard card={p.card} />
               <span className="text-xs text-muted-foreground">
                 {room.players[p.player]}
@@ -94,7 +101,7 @@ export function GameTable({ name, room, game, send }: GameTableProps) {
             </div>
           ))}
           {game.upcard && (game.phase === "bidding1" || game.phase === "bidding2") && (
-            <div className="flex flex-col items-center gap-1">
+            <div className="play-in flex flex-col items-center gap-1">
               <PlayingCard card={game.upcard} />
               <span className="text-xs text-muted-foreground">upcard</span>
             </div>
@@ -103,7 +110,7 @@ export function GameTable({ name, room, game, send }: GameTableProps) {
 
         <div className="flex flex-col items-center gap-2 self-center">
           {seatLabel(right)}
-          <div className="flex flex-col -space-y-9">
+          <div className="deal-stagger flex flex-col -space-y-9">
             {Array.from({ length: game.handCounts[right] }, (_, i) => (
               <CardBack key={i} className="h-16 w-11" />
             ))}
@@ -116,6 +123,13 @@ export function GameTable({ name, room, game, send }: GameTableProps) {
         <p className="text-center text-sm font-medium">
           {game.teams[myTeam].score >= 10 ? "You win!" : "You lose."}
         </p>
+      ) : game.phase === "hand_over" ? (
+        <div className="flex flex-col items-center gap-2">
+          <p className="text-sm font-medium">{handResult}</p>
+          <Button size="sm" onClick={() => send({ type: "next_hand" })}>
+            Next hand
+          </Button>
+        </div>
       ) : myTurn ? (
         <div className="flex flex-wrap items-center justify-center gap-2">
           {(game.phase === "bidding1" || game.phase === "bidding2") && (
@@ -163,7 +177,7 @@ export function GameTable({ name, room, game, send }: GameTableProps) {
       )}
 
       {/* my hand */}
-      <div className="flex justify-center gap-2">
+      <div className="deal-stagger flex justify-center gap-2">
         {myHand.map((card) => (
           <PlayingCard
             key={`${card.rank}-${card.suit}`}

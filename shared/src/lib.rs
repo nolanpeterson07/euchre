@@ -110,6 +110,7 @@ pub enum ClientMessage {
     Pass,
     Discard { card: Card },
     PlayCard { card: Card },
+    NextHand,
 }
 
 /// Server -> frontend

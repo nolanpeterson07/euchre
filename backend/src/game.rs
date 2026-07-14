@@ -177,9 +177,16 @@ pub fn apply(
                 info!("trick won by seat {winner}");
 
                 if game.teams[0].tricks_won + game.teams[1].tricks_won == TRICKS_PER_HAND {
-                    score_hand(game, players);
+                    score_hand(game);
                 }
             }
+            Ok(None)
+        }
+        ClientMessage::NextHand => {
+            require_phase(game, Phase::HandOver)?;
+            game.dealer = (game.dealer + 1) % MAX_PLAYERS;
+            deal(game);
+            info!("{player} started the next hand, dealer={}", game.dealer);
             Ok(None)
         }
     }
@@ -205,8 +212,8 @@ fn deal(game: &mut Game) {
     game.turn = (game.dealer + 1) % MAX_PLAYERS;
 }
 
-/// Award points for the finished hand, then either end the game or deal the next hand.
-fn score_hand(game: &mut Game, players: &[String]) {
+/// Award points for the finished hand, then end the game or wait for NextHand.
+fn score_hand(game: &mut Game) {
     let maker = game.maker.expect("hand scored without a maker");
     let maker_team = maker.player % 2;
     let tricks = game.teams[maker_team].tricks_won;
@@ -226,8 +233,9 @@ fn score_hand(game: &mut Game, players: &[String]) {
     if game.teams[winner].score >= WINNING_SCORE {
         game.phase = Phase::GameOver;
     } else {
-        game.dealer = (game.dealer + 1) % players.len();
-        deal(game);
+        // tricks_won stays put so clients can show the hand result;
+        // NextHand advances the dealer and deals.
+        game.phase = Phase::HandOver;
     }
 }
 

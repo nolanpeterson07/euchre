@@ -128,3 +128,38 @@
     @apply font-sans;
     }
 }
+/* Card animations: cards fade/slide in when dealt, pop in when played. */
+@keyframes deal-in {
+  from {
+    opacity: 0;
+    transform: translateY(1rem) scale(0.85) rotate(-4deg);
+  }
+}
+
+@keyframes play-in {
+  from {
+    opacity: 0;
+    transform: translateY(-1rem) scale(1.25);
+  }
+}
+
+/* Stagger children left to right; `backwards` keeps delayed cards hidden until their turn. */
+.deal-stagger > * {
+  animation: deal-in 0.35s ease-out backwards;
+}
+.deal-stagger > :nth-child(2) { animation-delay: 60ms; }
+.deal-stagger > :nth-child(3) { animation-delay: 120ms; }
+.deal-stagger > :nth-child(4) { animation-delay: 180ms; }
+.deal-stagger > :nth-child(5) { animation-delay: 240ms; }
+.deal-stagger > :nth-child(6) { animation-delay: 300ms; }
+
+.play-in {
+  animation: play-in 0.25s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deal-stagger > *,
+  .play-in {
+    animation: none;
+  }
+}
