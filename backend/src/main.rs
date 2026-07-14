@@ -14,7 +14,7 @@ use axum::routing::{any, get};
 use axum::{Json, Router};
 use log::{info, warn};
 use serde::Deserialize;
-use shared::{RoomInfo, ServerMessage};
+use shared::{ClientMessage, RoomInfo, ServerMessage};
 use tokio::sync::mpsc;
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
@@ -151,7 +151,19 @@ async fn handle_socket(mut socket: WebSocket, lobby: Lobby, id: Uuid, name: Stri
                         continue;
                     }
                     tokens -= 1.0;
+
+                    if text.len() > 1024 {
+                        warn!("dropping message from {name}: too long");
+                        continue;
+                    }
+
                     let Ok(msg) = serde_json::from_str(&text) else { continue }; // ignore malformed
+
+                    if let ClientMessage::Chat { text: chat } = &msg && chat.len() > 256 {
+                        warn!("dropping message from {name}: chat too long");
+                        continue;
+                    }
+
                     room.send(name.clone(), msg);
                 }
                 Some(Ok(_)) => {} // ignore binary/ping/pong
