@@ -77,8 +77,14 @@ struct CreateRoom {
     name: String,
 }
 
-async fn create_room(State(lobby): State<Lobby>, Json(req): Json<CreateRoom>) -> Json<RoomInfo> {
-    Json(lobby.create(req.name))
+async fn create_room(
+    State(lobby): State<Lobby>,
+    Json(req): Json<CreateRoom>,
+) -> Result<Json<RoomInfo>, StatusCode> {
+    if req.name.is_empty() || req.name.len() > 64 {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    Ok(Json(lobby.create(req.name)))
 }
 
 async fn get_room(

@@ -50,6 +50,7 @@ export function JoinRoom({ roomId, name, setName, onJoin, onCancel }: JoinRoomPr
         className="rounded-md border bg-transparent px-3 py-2 text-sm"
         placeholder="Your name"
         value={name}
+        maxLength={32}
         onChange={(e) => setName(e.target.value)}
       />
       <Button onClick={() => onJoin(roomId)} disabled={!name || full}>

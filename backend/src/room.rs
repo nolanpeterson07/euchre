@@ -95,8 +95,10 @@ impl RoomHandle {
             }
         }
 
-        let rejected = name.is_empty()
-            || room.game.phase != Phase::Lobby
+        if name.is_empty() || name.len() > 32 {
+            return Err("name must be 1-32 characters".to_string());
+        }
+        let rejected = room.game.phase != Phase::Lobby
             || room.peers.contains_key(&name)
             || room.info.players.len() >= MAX_PLAYERS;
         if rejected {

@@ -32,6 +32,7 @@ export function Lobby({ name, setName, onJoin }: LobbyProps) {
         className="rounded-md border bg-transparent px-3 py-2 text-sm"
         placeholder="Your name"
         value={name}
+        maxLength={32}
         onChange={(e) => setName(e.target.value)}
       />
       <Button onClick={create} disabled={!name}>
