@@ -9,17 +9,21 @@ use crate::rate_limiter::{RateLimiter, rate_limit};
 use crate::room::Lobby;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{StatusCode, Uri, header};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get};
 use axum::{Json, Router};
 use log::{info, warn};
+use rust_embed::Embed;
 use serde::Deserialize;
 use shared::{ClientMessage, RoomInfo, ServerMessage};
 use tokio::sync::mpsc;
 use tower_http::cors::CorsLayer;
-use tower_http::services::{ServeDir, ServeFile};
-use tower_http::set_status::SetStatus;
 use uuid::Uuid;
+
+#[derive(Embed)]
+#[folder = "../frontend/dist"]
+struct Assets;
 
 #[tokio::main]
 async fn main() {
@@ -37,7 +41,7 @@ async fn main() {
         }
     });
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:80").await.unwrap();
     info!("listening on {}", listener.local_addr().unwrap());
     axum::serve(
         listener,
@@ -48,24 +52,39 @@ async fn main() {
 }
 
 fn router(lobby: Lobby) -> Router {
-    let dist = concat!(env!("CARGO_MANIFEST_DIR"), "/../frontend/dist");
-    let index = ServeFile::new(format!("{dist}/index.html"));
-
-    let frontend =
-        ServeDir::new(dist).fallback(SetStatus::new(index.clone(), StatusCode::NOT_FOUND));
-
     Router::new()
         .route("/rooms", get(list_rooms).post(create_room))
         .route("/rooms/{id}", get(get_room))
-        .route_service("/room/{id}", index)
+        .route("/room/{id}", get(async || index(StatusCode::OK)))
         .route("/ws/{id}", any(ws_handler))
-        .fallback_service(frontend)
+        .fallback(static_handler)
         .layer(CorsLayer::permissive())
         .layer(axum::middleware::from_fn_with_state(
             RateLimiter::default(),
             rate_limit,
         ))
         .with_state(lobby)
+}
+
+async fn static_handler(uri: Uri) -> Response {
+    let path = uri.path().trim_start_matches('/');
+    match Assets::get(path) {
+        Some(file) => {
+            let mime = mime_guess::from_path(path).first_or_octet_stream();
+            ([(header::CONTENT_TYPE, mime.as_ref())], file.data).into_response()
+        }
+        None => index(StatusCode::NOT_FOUND),
+    }
+}
+
+fn index(status: StatusCode) -> Response {
+    let file = Assets::get("index.html").unwrap();
+    (
+        status,
+        [(header::CONTENT_TYPE, "text/html")],
+        file.data,
+    )
+        .into_response()
 }
 
 async fn list_rooms(State(lobby): State<Lobby>) -> Json<Vec<RoomInfo>> {

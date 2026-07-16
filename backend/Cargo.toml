@@ -10,10 +10,12 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time"]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
-tower-http = { version = "0.6", features = ["cors", "fs", "set-status"] }
+tower-http = { version = "0.6", features = ["cors"] }
 log = "0.4.33"
 rand = "0.9"
 env_logger = "0.11.11"
+rust-embed = "8.12.0"
+mime_guess = "2.0.5"
 
 [build-dependencies]
 shared = { path = "../shared" }
