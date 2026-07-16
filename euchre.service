@@ -1,0 +1,12 @@
+[Unit]
+Description=euchre
+After=network.target
+
+[Service]
+ExecStart=/opt/euchre/backend
+Restart=on-failure
+DynamicUser=yes
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
