@@ -14,6 +14,17 @@ fn main() {
     shared::Game::export_all(&cfg).unwrap();
 
     let frontend = concat!(env!("CARGO_MANIFEST_DIR"), "/../frontend");
+    let npm_works = Command::new("npm")
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success() && !o.stdout.is_empty());
+    if !npm_works {
+        assert!(
+            std::path::Path::new(&format!("{frontend}/dist")).exists(),
+            "npm is not available and {frontend}/dist is missing; run `npm run build` in frontend/ first"
+        );
+        return;
+    }
     if !std::path::Path::new(&format!("{frontend}/node_modules")).exists() {
         run("npm", &["install"], frontend);
     }
@@ -21,11 +32,17 @@ fn main() {
 }
 
 fn run(cmd: &str, args: &[&str], dir: &str) {
-    let status = Command::new(cmd)
+    let output = Command::new(cmd)
         .args(args)
         .current_dir(dir)
-        .status()
+        .output()
         .unwrap_or_else(|e| panic!("failed to spawn {cmd}: {e}"));
 
-    assert!(status.success(), "{cmd} {args:?} failed in {dir}");
+    assert!(
+        output.status.success(),
+        "{cmd} {args:?} failed in {dir} with {}\n--- stdout ---\n{}\n--- stderr ---\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
 }
